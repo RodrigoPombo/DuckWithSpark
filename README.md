@@ -98,32 +98,6 @@ SELECT * FROM spark_execute('
 -- (refer to Delta extension docs for reading OneLake paths)
 ```
 
-### Workflow 2: Load Local Data → OneLake → Spark Processing
-
-If you need to load local data first, use DuckDB's Delta extension to write to OneLake:
-
-```sql
--- Step 1: Load local data into DuckDB
-CREATE TABLE local_data AS 
-SELECT * FROM read_csv('data.csv');
-
--- Step 2: Write to OneLake using Delta extension
--- Format: abfss://<workspace-id>@onelake.dfs.fabric.microsoft.com/<lakehouse-id>/Tables/<table-name>
-COPY local_data TO 'abfss://74e51969...@onelake.dfs.fabric.microsoft.com/1bf0fd14.../Tables/my_table' 
-  (FORMAT DELTA);
-
--- Step 3: Process with Spark (for heavy operations)
-SELECT * FROM spark_execute('
-  CREATE OR REPLACE TABLE my_table_aggregated AS
-  SELECT category, COUNT(*) as count, AVG(value) as avg_value
-  FROM my_table
-  GROUP BY category
-');
-
--- Step 4: Read results back
--- (use Delta extension to read from OneLake)
-```
-
 ### When to Use Spark vs Local DuckDB
 
 **Use Spark (spark_execute) for:**
