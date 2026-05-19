@@ -1,5 +1,4 @@
 #include "http_client.hpp"
-#include "pbi_scanner_util.hpp"
 
 #include "duckdb/common/http_util.hpp"
 #include "duckdb/common/string_util.hpp"
@@ -256,24 +255,7 @@ HttpResponse HttpClient::PostStream(
   response.streamed_chunks = received_chunks;
   response.first_byte_ms = first_byte_ms;
   response.stream_elapsed_ms = elapsed_ms;
-  if (DebugTimingsEnabled()) {
-    auto content_type = response.GetHeader("Content-Type");
-    auto content_encoding = response.GetHeader("Content-Encoding");
-    auto transfer_encoding = response.GetHeader("Transfer-Encoding");
-    auto negotiation_flags =
-        response.GetHeader("X-Transport-Caps-Negotiation-Flags");
-    std::fprintf(stderr,
-                 "[pbi_scanner] HTTP PostStream: %llu bytes in %llu chunks "
-                 "(first byte %lld ms, total %lld ms, content-type \"%s\", "
-                 "content-encoding \"%s\", transfer-encoding \"%s\", "
-                 "transport-flags \"%s\")\n",
-                 static_cast<unsigned long long>(received_bytes),
-                 static_cast<unsigned long long>(received_chunks),
-                 static_cast<long long>(first_byte_ms),
-                 static_cast<long long>(elapsed_ms), content_type.c_str(),
-                 content_encoding.c_str(), transfer_encoding.c_str(),
-                 negotiation_flags.c_str());
-  }
+  // Debug logging removed
   if (disconnect_after_response || response.HasRequestError() ||
       response.status >= 400) {
     ClearClient();

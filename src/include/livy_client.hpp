@@ -8,7 +8,7 @@ namespace duckdb {
 struct SessionIdentifiers {
   std::string hc_session_id;
   std::string livy_session_id;
-  int64_t repl_id;
+  std::string repl_id;
   std::string state;
 };
 
@@ -45,9 +45,10 @@ private:
   std::string SessionsUrl() const;
   std::string SessionUrl(const std::string &hc_session_id) const;
   std::string StatementUrl(const std::string &livy_session_id,
-                          int64_t repl_id) const;
+            const std::string &repl_id) const;
   std::string StatementStatusUrl(const std::string &livy_session_id,
-                                int64_t repl_id, int64_t statement_id) const;
+              const std::string &repl_id,
+              int64_t statement_id) const;
 
   SessionIdentifiers PollSessionState(const std::string &hc_session_id,
                                      const std::string &target_state);

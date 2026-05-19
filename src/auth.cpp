@@ -35,7 +35,7 @@ using namespace duckdb_yyjson; // NOLINT
 namespace {
 
 static constexpr const char *POWER_BI_SCOPE =
-    "https://analysis.windows.net/powerbi/api/.default";
+  "https://analysis.windows.net/powerbi/api/.default";
 static constexpr const char *SUPPORTED_DEFAULT_CHAIN[] = {"env", "cli"};
 
 struct ServicePrincipalCredentials {

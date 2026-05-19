@@ -28,3 +28,39 @@ jobs:
       ci_tools_version: v1.5.1
       extension_name: spark_duckdb
       format_checks: 'format;tidy'
+
+  github-release:
+    name: Publish GitHub Release
+    needs:
+      - duckdb-stable-build
+      - code-quality-check
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.duckdb-stable-build.result == 'success' && needs.code-quality-check.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spark_duckdb-v1.5.1-extension-*
+          path: ./artifacts
+          merge-multiple: false
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find ./artifacts -name '*.duckdb_extension' -print0 | while IFS= read -r -d '' file; do
+            artifact_dir=$(basename "$(dirname "$file")")
+            cp "$file" "release-assets/${artifact_dir}.duckdb_extension"
+          done
+          ls -la release-assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/*.duckdb_extension

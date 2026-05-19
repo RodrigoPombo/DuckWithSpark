@@ -132,16 +132,14 @@ SELECT * FROM spark_execute('SELECT * FROM your_existing_table LIMIT 1');
 4. **No connection pooling** - New HTTP client per request
 5. **Limited error recovery** - No automatic retry on transient failures
 
-## Migration from Rust Version
+## Implementation Notes
 
-The Rust version (`spark_duckdb_extension/`) had fundamental API limitations:
-- Could not access session variables from table functions
-- Would require either:
-  - Named parameters (bad UX - repeat on every call)
-  - Unsafe FFI to C API (complex, error-prone)
-  - Wait for duckdb-rs API improvements
+The current C++ approach avoids earlier API constraints encountered in alternative prototypes:
+- Full access to session variables from extension functions
+- No need to repeat auth/workspace parameters on every query
+- No extra cross-language FFI layer in the critical execution path
 
-This C++ version has none of these issues - full access to DuckDB internals via `ClientContext`.
+This design keeps runtime behavior simpler and provides direct access to DuckDB internals via `ClientContext`.
 
 ## Next Steps
 

@@ -1,19 +1,15 @@
 #pragma once
 
-#include "duckdb/common/named_parameter_map.hpp"
-
 #include <string>
 
 namespace duckdb {
 
-class ClientContext;
-struct PowerBIConnectionConfig;
+// Get access token from Azure CLI
+std::string GetAzureCliToken();
 
-string
-ResolvePowerBIAccessToken(ClientContext &context,
-                          const PowerBIConnectionConfig &connection_config,
-                          const named_parameter_map_t &named_parameters);
-
-string TestServicePrincipalAuthErrorMessage(const string &test_case);
+// Get access token using service principal credentials
+std::string GetServicePrincipalToken(const std::string &tenant_id,
+                                    const std::string &client_id,
+                                    const std::string &client_secret);
 
 } // namespace duckdb

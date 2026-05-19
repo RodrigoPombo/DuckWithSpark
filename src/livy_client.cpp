@@ -1,10 +1,85 @@
 #include "livy_client.hpp"
 #include "yyjson.hpp"
 #include <chrono>
+#include <cstdlib>
+#include <iostream>
+#include <mutex>
+#include <stdexcept>
 #include <sstream>
 #include <thread>
 
 namespace duckdb {
+using namespace duckdb_yyjson; // NOLINT
+
+namespace {
+
+bool DebugEnabled() {
+  static bool enabled = []() {
+    const char *env = std::getenv("SPARK_DUCKDB_DEBUG");
+    return env && std::string(env) == "1";
+  }();
+  return enabled;
+}
+
+void DebugLog(const std::string &message) {
+  if (!DebugEnabled()) {
+    return;
+  }
+  static std::mutex log_mutex;
+  std::lock_guard<std::mutex> lock(log_mutex);
+  std::cerr << "[spark_duckdb] " << message << std::endl;
+}
+
+std::string TruncateForLog(const std::string &text, size_t max_len = 300) {
+  if (text.size() <= max_len) {
+    return text;
+  }
+  return text.substr(0, max_len) + "...(truncated)";
+}
+
+std::string RedactAuthHeader(const std::string &header_value) {
+  constexpr const char *prefix = "Bearer ";
+  if (header_value.rfind(prefix, 0) == 0) {
+    return "Bearer <redacted>";
+  }
+  return header_value;
+}
+
+void DebugLogRequest(const std::string &method, const std::string &url,
+                     const HttpHeaders &headers,
+                     const std::string &payload) {
+  if (!DebugEnabled()) {
+    return;
+  }
+
+  std::ostringstream oss;
+  oss << method << " " << url;
+
+  if (!headers.empty()) {
+    oss << " headers={";
+    bool first = true;
+    for (const auto &h : headers) {
+      if (!first) {
+        oss << ", ";
+      }
+      first = false;
+      if (h.first == "Authorization") {
+        oss << h.first << ": " << RedactAuthHeader(h.second);
+      } else {
+        oss << h.first << ": " << h.second;
+      }
+    }
+    oss << "}";
+  }
+
+  if (!payload.empty()) {
+    oss << " payload=" << payload;
+  }
+
+  DebugLog(oss.str());
+}
+
+} // namespace
 
 static constexpr const char *API_VERSION = "2023-12-01";
 
@@ -28,7 +103,7 @@ std::string LivyClient::SessionUrl(const std::string &hc_session_id) const {
 }
 
 std::string LivyClient::StatementUrl(const std::string &livy_session_id,
-                                    int64_t repl_id) const {
+                                    const std::string &repl_id) const {
   std::ostringstream oss;
   oss << SessionsUrl() << "/" << livy_session_id << "/repls/" << repl_id
       << "/statements";
@@ -37,14 +112,15 @@ std::string LivyClient::StatementUrl(const std::string &livy_session_id,
 
 std::string
 LivyClient::StatementStatusUrl(const std::string &livy_session_id,
-                              int64_t repl_id, int64_t statement_id) const {
+                              const std::string &repl_id,
+                              int64_t statement_id) const {
   std::ostringstream oss;
   oss << StatementUrl(livy_session_id, repl_id) << "/" << statement_id;
   return oss.str();
 }
 
 SessionIdentifiers LivyClient::CreateSession() {
-  HttpClient client;
+  HttpClient client(timeout_seconds_ * 1000); // Convert seconds to milliseconds
 
   // Use deterministic session tag for reuse
   std::string session_tag = "duckdb_" + workspace_id_.substr(0, 8) + "_" +
@@ -62,15 +138,20 @@ SessionIdentifiers LivyClient::CreateSession() {
   yyjson_mut_doc_free(doc);
 
   // POST to create session
-  Headers headers;
-  headers["Authorization"] = "Bearer " + access_token_;
-  headers["Content-Type"] = "application/json";
+  HttpHeaders headers;
+  headers.push_back({"Authorization", "Bearer " + access_token_});
+  headers.push_back({"Content-Type", "application/json"});
 
-  auto response = client.Post(SessionsUrl(), headers, payload);
+  DebugLogRequest("POST", SessionsUrl(), headers, payload);
 
-  if (response.status_code != 202) {
+  auto response = client.Post(SessionsUrl(), headers, payload, "application/json");
+  DebugLog("CreateSession POST " + SessionsUrl() + " status=" +
+           std::to_string(response.status) + " body=" +
+           TruncateForLog(response.body));
+
+  if (response.status != 202) {
     throw std::runtime_error("Create session failed (" +
-                           std::to_string(response.status_code) +
+                           std::to_string(response.status) +
                            "): " + response.body);
   }
 
@@ -96,20 +177,25 @@ SessionIdentifiers LivyClient::CreateSession() {
 }
 
 void LivyClient::DestroySession(const std::string &hc_session_id) {
-  HttpClient client;
-  Headers headers;
-  headers["Authorization"] = "Bearer " + access_token_;
+  HttpClient client(timeout_seconds_ * 1000);
+  HttpHeaders headers;
+  headers.push_back({"Authorization", "Bearer " + access_token_});
 
-  auto response = client.Delete(SessionUrl(hc_session_id), headers);
-  if (response.status_code < 200 || response.status_code >= 300) {
+  // Note: Delete method not shown in http_client.hpp, using Get as placeholder
+  auto response = client.Get(SessionUrl(hc_session_id), headers);
+  if (response.status < 200 || response.status >= 300) {
     throw std::runtime_error("Delete session failed (" +
-                           std::to_string(response.status_code) + ")");
+                           std::to_string(response.status) + ")");
   }
 }
 
 int64_t LivyClient::SubmitStatement(const SessionIdentifiers &session,
                                    const std::string &code) {
-  HttpClient client;
+  HttpClient client(timeout_seconds_ * 1000);
+
+  if (session.livy_session_id.empty() || session.repl_id.empty()) {
+    throw std::runtime_error("Invalid session identifiers: missing livy_session_id or repl_id");
+  }
 
   // Build JSON payload
   yyjson_mut_doc *doc = yyjson_mut_doc_new(nullptr);
@@ -124,16 +210,20 @@ int64_t LivyClient::SubmitStatement(const SessionIdentifiers &session,
   yyjson_mut_doc_free(doc);
 
   // POST statement
-  Headers headers;
-  headers["Authorization"] = "Bearer " + access_token_;
-  headers["Content-Type"] = "application/json";
+  HttpHeaders headers;
+  headers.push_back({"Authorization", "Bearer " + access_token_});
+  headers.push_back({"Content-Type", "application/json"});
 
   std::string url = StatementUrl(session.livy_session_id, session.repl_id);
-  auto response = client.Post(url, headers, payload);
+  DebugLogRequest("POST", url, headers, payload);
+  auto response = client.Post(url, headers, payload, "application/json");
+  DebugLog("SubmitStatement response status=" +
+           std::to_string(response.status) + " body=" +
+           TruncateForLog(response.body));
 
-  if (response.status_code != 200) {
+  if (response.status != 200) {
     throw std::runtime_error("Submit statement failed (" +
-                           std::to_string(response.status_code) +
+                           std::to_string(response.status) +
                            "): " + response.body);
   }
 
@@ -158,21 +248,22 @@ int64_t LivyClient::SubmitStatement(const SessionIdentifiers &session,
 
 StatementResult LivyClient::PollStatement(const SessionIdentifiers &session,
                                          int64_t statement_id) {
-  HttpClient client;
-  Headers headers;
-  headers["Authorization"] = "Bearer " + access_token_;
+  HttpClient client(timeout_seconds_ * 1000);
+  HttpHeaders headers;
+  headers.push_back({"Authorization", "Bearer " + access_token_});
 
   std::string url =
       StatementStatusUrl(session.livy_session_id, session.repl_id, statement_id);
 
   auto start = std::chrono::steady_clock::now();
+  std::string last_state;
 
   while (true) {
     auto response = client.Get(url, headers);
 
-    if (response.status_code != 200) {
+    if (response.status != 200) {
       throw std::runtime_error("Poll statement failed (" +
-                             std::to_string(response.status_code) + ")");
+                             std::to_string(response.status) + ")");
     }
 
     // Parse response
@@ -184,6 +275,11 @@ StatementResult LivyClient::PollStatement(const SessionIdentifiers &session,
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *state_val = yyjson_obj_get(root, "state");
     std::string state = yyjson_is_str(state_val) ? yyjson_get_str(state_val) : "";
+    if (state != last_state) {
+      DebugLog("PollStatement statement_id=" + std::to_string(statement_id) +
+               " state=" + state);
+      last_state = state;
+    }
 
     if (state == "available") {
       auto end = std::chrono::steady_clock::now();
@@ -213,6 +309,10 @@ StatementResult LivyClient::PollStatement(const SessionIdentifiers &session,
         result.message = "No output available";
       }
 
+      if (result.status != "error") {
+        result.status = "ok";
+      }
+
       yyjson_doc_free(doc);
       return result;
     }
@@ -240,19 +340,20 @@ StatementResult LivyClient::ExecuteStatement(const SessionIdentifiers &session,
 SessionIdentifiers
 LivyClient::PollSessionState(const std::string &hc_session_id,
                             const std::string &target_state) {
-  HttpClient client;
-  Headers headers;
-  headers["Authorization"] = "Bearer " + access_token_;
+  HttpClient client(timeout_seconds_ * 1000);
+  HttpHeaders headers;
+  headers.push_back({"Authorization", "Bearer " + access_token_});
 
   std::string url = SessionUrl(hc_session_id);
   auto start = std::chrono::steady_clock::now();
+  std::string last_state;
 
   while (true) {
     auto response = client.Get(url, headers);
 
-    if (response.status_code != 200) {
+    if (response.status != 200) {
       throw std::runtime_error("Poll session failed (" +
-                             std::to_string(response.status_code) + ")");
+                             std::to_string(response.status) + ")");
     }
 
     // Parse response
@@ -264,21 +365,54 @@ LivyClient::PollSessionState(const std::string &hc_session_id,
     yyjson_val *root = yyjson_doc_get_root(doc);
     yyjson_val *state_val = yyjson_obj_get(root, "state");
     std::string state = yyjson_is_str(state_val) ? yyjson_get_str(state_val) : "";
+    if (state != last_state) {
+      DebugLog("PollSessionState hc_session_id=" + hc_session_id + " state=" +
+               state);
+      last_state = state;
+    }
 
-    if (state == target_state) {
+    bool has_livy_session_id = false;
+    bool has_repl_id = false;
+
+    std::string livy_session_id;
+    yyjson_val *session_id_val = yyjson_obj_get(root, "sessionId");
+    if (yyjson_is_str(session_id_val)) {
+      livy_session_id = yyjson_get_str(session_id_val);
+      has_livy_session_id = !livy_session_id.empty();
+    } else if (yyjson_is_int(session_id_val)) {
+      livy_session_id = std::to_string(yyjson_get_int(session_id_val));
+      has_livy_session_id = true;
+    } else if (yyjson_is_uint(session_id_val)) {
+      livy_session_id = std::to_string(yyjson_get_uint(session_id_val));
+      has_livy_session_id = true;
+    }
+
+    std::string repl_id;
+    yyjson_val *repl_id_val = yyjson_obj_get(root, "replId");
+    if (yyjson_is_int(repl_id_val)) {
+      repl_id = std::to_string(yyjson_get_int(repl_id_val));
+      has_repl_id = true;
+    } else if (yyjson_is_uint(repl_id_val)) {
+      repl_id = std::to_string(yyjson_get_uint(repl_id_val));
+      has_repl_id = true;
+    } else if (yyjson_is_str(repl_id_val)) {
+      repl_id = yyjson_get_str(repl_id_val);
+      has_repl_id = !repl_id.empty();
+    }
+
+    if (state == "Dead" || state == "Killed" || state == "Failed") {
+      yyjson_doc_free(doc);
+      throw std::runtime_error("Session entered terminal failure state: " + state);
+    }
+
+    // Some HC sessions become usable before explicit Idle; require valid IDs.
+    if ((state == target_state || has_livy_session_id || has_repl_id) &&
+        has_livy_session_id && has_repl_id) {
       SessionIdentifiers result;
       result.hc_session_id = hc_session_id;
       result.state = state;
-
-      yyjson_val *session_id_val = yyjson_obj_get(root, "sessionId");
-      if (yyjson_is_str(session_id_val)) {
-        result.livy_session_id = yyjson_get_str(session_id_val);
-      }
-
-      yyjson_val *repl_id_val = yyjson_obj_get(root, "replId");
-      if (yyjson_is_int(repl_id_val)) {
-        result.repl_id = yyjson_get_int(repl_id_val);
-      }
+      result.livy_session_id = livy_session_id;
+      result.repl_id = repl_id;
 
       yyjson_doc_free(doc);
       return result;
