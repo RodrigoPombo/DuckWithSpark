@@ -37,8 +37,15 @@ target_link_libraries(${LOADABLE_EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
 
 if(WIN32)
   # Windows system libraries required for OpenSSL static linking
-  target_link_libraries(${EXTENSION_NAME} ws2_32 crypt32 advapi32 user32 bcrypt legacy_stdio_definitions)
-  target_link_libraries(${LOADABLE_EXTENSION_NAME} ws2_32 crypt32 advapi32 user32 bcrypt legacy_stdio_definitions)
+  target_link_libraries(${EXTENSION_NAME} ws2_32 crypt32 advapi32 user32 bcrypt)
+  target_link_libraries(${LOADABLE_EXTENSION_NAME} ws2_32 crypt32 advapi32 user32 bcrypt)
+
+  # legacy_stdio_definitions is provided by the MSVC toolchain and is not
+  # available in MinGW environments used by windows_amd64_mingw builds.
+  if(MSVC)
+    target_link_libraries(${EXTENSION_NAME} legacy_stdio_definitions)
+    target_link_libraries(${LOADABLE_EXTENSION_NAME} legacy_stdio_definitions)
+  endif()
 endif()
 
 if(ZLIB_FOUND)
