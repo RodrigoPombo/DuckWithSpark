@@ -231,23 +231,23 @@ HttpResponse HttpClient::PostStream(
   idx_t received_chunks = 0;
   idx_t received_bytes = 0;
   int64_t first_byte_ms = -1;
-  auto result = client_ref.Post(
-      path, ::duckdb::ToHeaders(headers), body, content_type,
-      [&](const char *data, size_t data_length) {
-        if (first_byte_ms < 0) {
-          first_byte_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              std::chrono::steady_clock::now() - started_at)
-                              .count();
-        }
-        received_chunks++;
-        received_bytes += data_length;
-        auto should_continue = receiver(const_data_ptr_cast(data), data_length);
-        if (!should_continue) {
-          client_ref.stop();
-        }
-        return should_continue;
-      });
+
+  // DuckDB 1.4.4 ships an httplib version that does not support the
+  // stream-receiver callback overload for POST with a std::string body.
+  // Fallback to a regular POST and pass the full response body to receiver.
+  auto result = client_ref.Post(path, ::duckdb::ToHeaders(headers), body,
+                                content_type);
   auto response = TransformStreamResult(result);
+
+  if (!response.HasRequestError() && !response.body.empty()) {
+    first_byte_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started_at)
+                        .count();
+    received_chunks = 1;
+    received_bytes = response.body.size();
+    receiver(const_data_ptr_cast(response.body.data()), response.body.size());
+  }
+
   auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - started_at)
                         .count();

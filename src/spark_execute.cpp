@@ -109,7 +109,6 @@ ScalarFunction CreateSparkExecuteFunction() {
   ScalarFunction func("spark_execute", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
                       SparkExecuteScalarFunction);
   func.stability = FunctionStability::VOLATILE;
-  func.SetNullHandling(FunctionNullHandling::SPECIAL_HANDLING);
   return func;
 }
 
