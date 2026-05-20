@@ -53,7 +53,11 @@ jobs:
           mkdir -p release-assets
           find ./artifacts -name '*.duckdb_extension' -print0 | while IFS= read -r -d '' file; do
             artifact_dir=$(basename "$(dirname "$file")")
-            cp "$file" "release-assets/${artifact_dir}.duckdb_extension"
+            platform_dir="release-assets/${artifact_dir}"
+            mkdir -p "$platform_dir"
+            cp "$file" "$platform_dir/spark_duckdb.duckdb_extension"
+            (cd release-assets && zip -q -j "${artifact_dir}.zip" "${artifact_dir}/spark_duckdb.duckdb_extension")
+            rm -rf "$platform_dir"
           done
           ls -la release-assets
 
@@ -63,4 +67,4 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           generate_release_notes: true
-          files: release-assets/*.duckdb_extension
+          files: release-assets/*.zip
