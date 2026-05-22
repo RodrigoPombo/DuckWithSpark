@@ -88,21 +88,15 @@ static void SparkExecuteScalarFunction(DataChunk &args, ExpressionState &state,
   auto sql_data = FlatVector::GetData<string_t>(args.data[0]);
   std::string sql_code = sql_data[0].GetString();
 
-  std::string status_message;
-  try {
-    auto statement_result = ExecuteSparkSql(state.GetContext(), sql_code);
-    if (statement_result.status == "ok") {
-      status_message = "OK!";
-    } else {
-      status_message = "ERROR: " + statement_result.message;
-    }
-  } catch (std::exception &e) {
-    status_message = "ERROR: " + std::string(e.what());
+  auto statement_result = ExecuteSparkSql(state.GetContext(), sql_code);
+  if (statement_result.status != "ok") {
+    throw InvalidInputException(statement_result.message);
   }
 
   result.SetVectorType(VectorType::CONSTANT_VECTOR);
   ConstantVector::SetNull(result, false);
-  ConstantVector::GetData<string_t>(result)[0] = StringVector::AddString(result, status_message);
+  ConstantVector::GetData<string_t>(result)[0] =
+      StringVector::AddString(result, "Spark got ducked, Congrats!");
 }
 
 ScalarFunction CreateSparkExecuteFunction() {
