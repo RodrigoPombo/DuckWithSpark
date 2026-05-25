@@ -21,6 +21,10 @@ static void LoadInternal(ExtensionLoader &loader) {
   config.AddExtensionOption("spark_lakehouse_id", "Lakehouse ID for Spark execution",
                            LogicalType::VARCHAR);
 
+  config.AddExtensionOption("spark_environment_id",
+                           "Optional Fabric environment ID for session creation",
+                           LogicalType::VARCHAR);
+
   config.AddExtensionOption("spark_auth_mode",
                            "Auth mode: azure_cli, service_principal, access_token",
                            LogicalType::VARCHAR);

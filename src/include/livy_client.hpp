@@ -23,7 +23,8 @@ struct StatementResult {
 class LivyClient {
 public:
   LivyClient(const std::string &workspace_id, const std::string &lakehouse_id,
-             const std::string &access_token);
+             const std::string &access_token,
+             const std::string &environment_id = "");
 
   SessionIdentifiers CreateSession();
   void DestroySession(const std::string &hc_session_id);
@@ -38,6 +39,7 @@ private:
   std::string workspace_id_;
   std::string lakehouse_id_;
   std::string access_token_;
+  std::string environment_id_;
   std::string base_url_;
   static constexpr int timeout_seconds_ = 300;
   static constexpr int poll_interval_seconds_ = 5;

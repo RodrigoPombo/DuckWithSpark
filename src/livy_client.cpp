@@ -85,9 +85,10 @@ static constexpr const char *API_VERSION = "2023-12-01";
 
 LivyClient::LivyClient(const std::string &workspace_id,
                        const std::string &lakehouse_id,
-                       const std::string &access_token)
+                       const std::string &access_token,
+                       const std::string &environment_id)
     : workspace_id_(workspace_id), lakehouse_id_(lakehouse_id),
-      access_token_(access_token),
+      access_token_(access_token), environment_id_(environment_id),
       base_url_("https://api.fabric.microsoft.com") {}
 
 std::string LivyClient::SessionsUrl() const {
@@ -131,6 +132,14 @@ SessionIdentifiers LivyClient::CreateSession() {
   yyjson_mut_val *root = yyjson_mut_obj(doc);
   yyjson_mut_doc_set_root(doc, root);
   yyjson_mut_obj_add_strcpy(doc, root, "sessionTag", session_tag.c_str());
+
+  if (!environment_id_.empty()) {
+    yyjson_mut_val *conf = yyjson_mut_obj(doc);
+    std::string env_details = "{\"id\":\"" + environment_id_ + "\"}";
+    yyjson_mut_obj_add_strcpy(doc, conf, "spark.fabric.environmentDetails",
+                              env_details.c_str());
+    yyjson_mut_obj_add_val(doc, root, "conf", conf);
+  }
 
   const char *json_str = yyjson_mut_write(doc, 0, nullptr);
   std::string payload(json_str);

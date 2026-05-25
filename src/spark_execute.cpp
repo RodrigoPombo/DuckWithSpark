@@ -5,8 +5,34 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/vector.hpp"
 #include "duckdb/main/client_context.hpp"
+#include <mutex>
+#include <unordered_map>
 
 namespace duckdb {
+
+struct CachedSparkSession {
+  std::string config_key;
+  SessionIdentifiers session;
+};
+
+static std::mutex g_session_cache_mutex;
+static std::unordered_map<ClientContext *, CachedSparkSession> g_session_cache;
+
+static std::string BuildSessionConfigKey(const std::string &workspace_id,
+                                         const std::string &lakehouse_id,
+                                         const std::string &environment_id,
+                                         const std::string &auth_mode) {
+  return workspace_id + "|" + lakehouse_id + "|" + environment_id + "|" +
+         auth_mode;
+}
+
+static bool SessionLooksInvalid(const std::string &error_message) {
+  return error_message.find("Invalid session identifiers") != std::string::npos ||
+         error_message.find("Poll statement failed") != std::string::npos ||
+         error_message.find("Submit statement failed") != std::string::npos ||
+         error_message.find("Session entered terminal failure state") !=
+             std::string::npos;
+}
 
 static StatementResult ExecuteSparkSql(ClientContext &context,
                                        const std::string &sql_code) {
@@ -63,10 +89,54 @@ static StatementResult ExecuteSparkSql(ClientContext &context,
     throw InvalidInputException("Invalid spark_auth_mode: " + auth_mode);
   }
 
+  std::string environment_id;
+  Value environment_id_val;
+  if (context.TryGetCurrentSetting("spark_environment_id", environment_id_val) &&
+      !environment_id_val.IsNull()) {
+    environment_id = environment_id_val.ToString();
+    StringUtil::Trim(environment_id);
+  }
+
   // Create Livy client and execute the statement once.
-  LivyClient client(workspace_id, lakehouse_id, access_token);
-  SessionIdentifiers session = client.CreateSession();
-  return client.ExecuteStatement(session, sql_code);
+  LivyClient client(workspace_id, lakehouse_id, access_token, environment_id);
+  const auto session_config_key =
+      BuildSessionConfigKey(workspace_id, lakehouse_id, environment_id, auth_mode);
+
+  SessionIdentifiers session;
+  bool used_cached_session = false;
+  {
+    std::lock_guard<std::mutex> lock(g_session_cache_mutex);
+    auto cached_it = g_session_cache.find(&context);
+    if (cached_it != g_session_cache.end() &&
+        cached_it->second.config_key == session_config_key &&
+        !cached_it->second.session.livy_session_id.empty() &&
+        !cached_it->second.session.repl_id.empty()) {
+      session = cached_it->second.session;
+      used_cached_session = true;
+    }
+  }
+
+  if (!used_cached_session) {
+    session = client.CreateSession();
+    std::lock_guard<std::mutex> lock(g_session_cache_mutex);
+    g_session_cache[&context] = CachedSparkSession{session_config_key, session};
+  }
+
+  try {
+    return client.ExecuteStatement(session, sql_code);
+  } catch (const std::exception &ex) {
+    if (!used_cached_session || !SessionLooksInvalid(ex.what())) {
+      throw;
+    }
+
+    // Cached session can expire or be evicted remotely. Recreate once and retry.
+    session = client.CreateSession();
+    {
+      std::lock_guard<std::mutex> lock(g_session_cache_mutex);
+      g_session_cache[&context] = CachedSparkSession{session_config_key, session};
+    }
+    return client.ExecuteStatement(session, sql_code);
+  }
 }
 
 static void SparkExecuteScalarFunction(DataChunk &args, ExpressionState &state,
