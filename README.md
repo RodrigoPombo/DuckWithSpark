@@ -1,6 +1,6 @@
 # Spark DuckDB Extension (C++)
 
-DuckDB extension for executing Spark SQL via Microsoft Fabric Livy API.
+DuckDB extension for executing Spark SQL via Microsoft Fabric Livy API. This is currently in *BETA*
 
 ## Overview
 
