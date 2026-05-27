@@ -78,30 +78,6 @@ Refer to Delta extension documentation for reading from OneLake paths.
 
 ## Typical Workflows
 
-### Workflow 1: Processing Existing OneLake Data
-
-If your data is already in OneLake (from other pipelines, Fabric notebooks, etc.):
-
-```sql
--- Configure extension
-SET spark_lakehouse_workspace_id = 'your-workspace-id';
-SET spark_lakehouse_id = 'your-lakehouse-id';
-SET spark_environment_id = 'your-environment-id';
-SET spark_auth_mode = 'azure_cli';
-
--- Use Spark for heavy transformations on existing tables
-SELECT * FROM spark_execute('
-  CREATE OR REPLACE TABLE sales_aggregated AS
-  SELECT region, product, SUM(revenue) as total_revenue
-  FROM sales_transactions  -- existing OneLake table
-  WHERE year = 2024
-  GROUP BY region, product
-');
-
--- Read results with DuckDB Delta extension
--- (refer to Delta extension docs for reading OneLake paths)
-```
-
 ### When to Use Spark vs Local DuckDB
 
 **Use Spark (spark_execute) for:**
@@ -128,6 +104,10 @@ SET spark_lakehouse_id = '1bf0fd14-f77f-4e50-aff2-e25ed0116357';
 SET spark_environment_id = 'your-environment-id';
 SET spark_auth_mode = 'azure_cli';
 
+-- Note: If you need to write Delta data to OneLake before using spark_execute(),
+-- users can do that separately with delta-rs, the delta_export community extension,
+-- or DuckDB's Delta extension, depending on the workflow they already use.
+
 -- Step 3: Create table via Spark (DDL - returns status only)
 SELECT * FROM spark_execute('
   CREATE OR REPLACE TABLE customer_summary AS
@@ -149,6 +129,9 @@ SELECT * FROM spark_execute('
   FROM new_orders
   GROUP BY customer_id
 ');
+
+-- Writes to OneLake Delta can also be handled outside this extension through
+-- delta-rs, delta_export, or DuckDB Delta-based workflows when that fits better.
 
 -- For reading: Use DuckDB Delta extension (separate from this extension)
 ```
