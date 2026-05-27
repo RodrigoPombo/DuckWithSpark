@@ -30,8 +30,11 @@ Set session variables once - used by both Spark execution AND Delta reading:
 -- These variables are shared between spark_execute() and delta_scan()
 SET spark_lakehouse_workspace_id = '74e51969-0e25-4d5c-9b97-29ccdf12fcf1';
 SET spark_lakehouse_id = '1bf0fd14-f77f-4e50-aff2-e25ed0116357';
+SET spark_environment_id = 'your-environment-id';  -- optional, for Fabric Spark environment binding
 SET spark_auth_mode = 'azure_cli';  -- or 'service_principal', 'access_token'
 ```
+
+`spark_environment_id` is optional, but when provided it is forwarded to Fabric Spark so the request is bound to a specific Fabric environment.
 
 For service principal auth:
 ```sql
@@ -83,6 +86,7 @@ If your data is already in OneLake (from other pipelines, Fabric notebooks, etc.
 -- Configure extension
 SET spark_lakehouse_workspace_id = 'your-workspace-id';
 SET spark_lakehouse_id = 'your-lakehouse-id';
+SET spark_environment_id = 'your-environment-id';
 SET spark_auth_mode = 'azure_cli';
 
 -- Use Spark for heavy transformations on existing tables
@@ -121,6 +125,7 @@ LOAD 'path/to/spark_duckdb.duckdb_extension';
 -- Step 2: Configure
 SET spark_lakehouse_workspace_id = '74e51969-0e25-4d5c-9b97-29ccdf12fcf1';
 SET spark_lakehouse_id = '1bf0fd14-f77f-4e50-aff2-e25ed0116357';
+SET spark_environment_id = 'your-environment-id';
 SET spark_auth_mode = 'azure_cli';
 
 -- Step 3: Create table via Spark (DDL - returns status only)
