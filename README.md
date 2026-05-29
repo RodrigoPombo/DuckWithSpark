@@ -81,7 +81,7 @@ Refer to Delta extension documentation for reading from OneLake paths.
 ### When to Use Spark vs Local DuckDB
 
 **Use Spark (spark_execute) for:**
-- ✅ Heavy aggregations on large OneLake tables (100M+ rows)
+- ✅ Heavy aggregations on large OneLake tables
 - ✅ Complex transformations requiring distributed processing
 - ✅ CREATE TABLE / INSERT / UPDATE / DELETE / MERGE on OneLake tables
 - ✅ Operations that take advantage of Spark's parallelism
